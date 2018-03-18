@@ -1,9 +1,11 @@
 ﻿using Celeste;
+using Celeste.Mod;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using Monocle;
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Text.RegularExpressions;
 
@@ -37,6 +39,8 @@ namespace CelesteLevelEditor
         private MTexture button;
         private MTexture bg1;
 
+        private Dictionary<string, LevelData> hovered;
+
         static LevelEditor()
         {
             LevelEditor.area = AreaKey.None;
@@ -44,6 +48,8 @@ namespace CelesteLevelEditor
 
         public LevelEditor(Session session) : base()
         {
+
+            this.hovered = new Dictionary<string, LevelData>();
 
             button = GFX.Gui["editor/button"];
             bg1 = GFX.Gui["editor/bg-1"];
@@ -277,6 +283,17 @@ namespace CelesteLevelEditor
             Calc.PopRandom();
         }
 
+        public bool Check(LevelData ld, Vector2 point)
+        {
+            int room_x = ld.Bounds.X;
+            int room_y = ld.Bounds.Y;
+            int room_w = ld.Bounds.Width;
+            int room_h = (int)(Math.Ceiling(ld.Bounds.Height/8f)*8);
+            //int room_w = (int)Math.Ceiling(ld.Bounds.Width / 8f);
+            //int room_h = (int)Math.Ceiling(ld.Bounds.Height / 8f);
+            return point.X >= (float)room_x && point.Y >= (float)room_y && point.X < (float)(room_x+room_w) && point.Y < (float)room_y+room_h;
+        }
+
         public override void Update()
         {
             Vector2 value;
@@ -284,6 +301,14 @@ namespace CelesteLevelEditor
             value.Y = (this.lastMouseScreenPosition.Y - MInput.Mouse.Position.Y) / LevelEditor.Camera.Zoom;
             LevelEditor.Camera.Position += new Vector2((float)Input.MoveX.Value, (float)Input.MoveY.Value) * 600f * Engine.DeltaTime;
             this.UpdateMouse();
+
+            hovered.Clear();
+
+            foreach( LevelData levelData in mapData.Levels)
+            {
+                if (Check(levelData, mousePosition))
+                    this.hovered.Add(levelData.Name, levelData);
+            }
 
             if (MInput.Keyboard.Pressed(Keys.Back))
                 tile = '0';
@@ -308,8 +333,35 @@ namespace CelesteLevelEditor
             if (MInput.Keyboard.Pressed(Keys.D9))
                 tile = !MInput.Keyboard.Check(Keys.LeftShift) ? 'h' : 'l'; //GRASS | DEAD GRASS 
 
-            if (MInput.Mouse.CheckLeftButton || MInput.Mouse.CheckRightButton)
+            if (  (MInput.Mouse.CheckLeftButton || MInput.Mouse.CheckRightButton))
             {
+                int room_x = -1;
+                int room_y = -1;
+                if (hovered.Count == 1)
+                {
+                    foreach (LevelData levelData in hovered.Values)
+                    {
+                        room_x = (int)((this.mousePosition.X - levelData.Bounds.X) / 8f);
+                        room_y = (int)((this.mousePosition.Y - levelData.Bounds.Y) / 8f);
+
+                        if( MInput.Mouse.CheckLeftButton)
+                        {                          
+                            char[] charArray = levelData.Solids.ToCharArray();
+                            int pos = (room_y * (int)(levelData.Bounds.Width/8)) + room_x;
+                            charArray[pos] = tile;
+                            levelData.Solids = new string(charArray);
+                        }
+                        if (MInput.Mouse.CheckRightButton)
+                        {
+                            char[] charArray = levelData.Bg.ToCharArray();
+                            int pos = (room_y * (int)(levelData.Bounds.Width / 8)) + room_x;
+                            charArray[pos] = tile;
+                            levelData.Bg = new string(charArray);
+                        }
+                    }
+                }
+
+
                 int x = (int)(this.mousePosition / 8).X;
                 int y = (int)(this.mousePosition / 8).Y;
                 if (this.mousePosition.X < 0)
@@ -413,9 +465,16 @@ namespace CelesteLevelEditor
             if (virtualY > h - 1)
                 virtualY = h - 1;
 
-            
-
-            
+            int room_x = -1;
+            int room_y = -1;
+            if (hovered.Count == 1)
+            {
+                foreach(LevelData levelData in hovered.Values)
+                {
+                    room_x = (int)((this.mousePosition.X - levelData.Bounds.X)/8f);
+                    room_y = (int)((this.mousePosition.Y - levelData.Bounds.Y)/8f);
+                }
+            }
 
             Draw.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, RasterizerState.CullNone, null, LevelEditor.Camera.Matrix * Engine.ScreenMatrix);
 
@@ -430,7 +489,7 @@ namespace CelesteLevelEditor
 
             foreach (LevelData ld in mapData.Levels)
             {
-                Draw.HollowRect((float)ld.Position.X - 1, (float)ld.Position.Y - 1, (float)(ld.TileBounds.Width * 8) + 2, (float)(ld.TileBounds.Height * 8) + 2, Calc.HexToColor("ffffff"));
+                Draw.HollowRect((float)ld.Position.X, (float)ld.Position.Y, (float)(ld.TileBounds.Width * 8), (float)(ld.TileBounds.Height * 8), Calc.HexToColor("ffffff"));
             }
 
             Draw.SpriteBatch.End();
@@ -450,6 +509,18 @@ namespace CelesteLevelEditor
             pixelFontSize.Size = 96f;
 
             ActiveFont.Draw("Tile: "+tile.ToString(), new Vector2(16, 32), Color.Red);
+
+            ActiveFont.Draw("RX: " + room_x.ToString(), new Vector2(16, 64), Color.Red);
+            ActiveFont.Draw("RY: " + room_y.ToString(), new Vector2(16, 96), Color.Red);
+
+
+            int roomListOffset = 0;
+            foreach( string roomName in hovered.Keys)
+            {
+
+                ActiveFont.Draw("R:" + roomName, new Vector2(16, 128+(roomListOffset*32)), Color.Red);
+                roomListOffset++;
+            }
 
             //ActiveFont.Draw(x.ToString(), new Vector2(16, 32), Color.Red);
             //ActiveFont.Draw(y.ToString(), new Vector2(16, 64), Color.Red);
