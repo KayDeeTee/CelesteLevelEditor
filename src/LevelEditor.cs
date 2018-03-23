@@ -6,13 +6,17 @@ using Microsoft.Xna.Framework.Input;
 using Monocle;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using System.Xml;
 
 namespace CelesteLevelEditor
 {
     class LevelEditor : Scene
     {
+        public List<Rectangle> LevelBounds;
+
         public Session session;
         public MapData mapData;
 
@@ -30,7 +34,6 @@ namespace CelesteLevelEditor
 
         public bool fgDataUpdated;
         public bool bgDataUpdated;
-        public int frameCount;
 
         private VirtualRenderTarget viewBuffer;
 
@@ -41,13 +44,339 @@ namespace CelesteLevelEditor
 
         private Dictionary<string, LevelData> hovered;
 
+        public Dictionary<char, TerrainType> lookup;
+
+        public FieldInfo fiTexture;
+
+        public byte[] adjacent;
+
+        public class TerrainType
+        {
+            public TerrainType(char id)
+            {
+                this.Ignores = new HashSet<char>();
+                this.Masked = new List<Masked>();
+                this.Center = new Tiles();
+                this.Padded = new Tiles();
+                this.ID = id;
+            }
+            public bool Ignore(char c)
+            {
+                return this.ID != c && (this.Ignores.Contains(c) || this.Ignores.Contains('*'));
+            }
+            public char ID;
+            public HashSet<char> Ignores;
+            public List<Masked> Masked;
+            public Tiles Center;
+            public Tiles Padded;
+        }
+
+        public class Masked
+        {
+            // Token: 0x06002176 RID: 8566 RVA: 0x000AC7C1 File Offset: 0x000AA9C1
+            public Masked()
+            {
+                this.Mask = new byte[9];
+                this.Tiles = new Tiles();
+            }
+
+            // Token: 0x04001B8B RID: 7051
+            public byte[] Mask;
+
+            // Token: 0x04001B8C RID: 7052
+            public Tiles Tiles;
+        }
+
+        public class Tiles
+        {
+            // Token: 0x06002177 RID: 8567 RVA: 0x000AC7E1 File Offset: 0x000AA9E1
+            public Tiles()
+            {
+                this.Textures = new List<MTexture>();
+                this.OverlapSprites = new List<string>();
+            }
+
+            // Token: 0x04001B8D RID: 7053
+            public List<MTexture> Textures;
+
+            // Token: 0x04001B8E RID: 7054
+            public List<string> OverlapSprites;
+
+            // Token: 0x04001B8F RID: 7055
+            public bool HasOverlays;
+        }
+
+        public void ReadInto(TerrainType data, Tileset tileset, XmlElement xml)
+        {
+            foreach (object obj in xml)
+            {
+                if (!(obj is XmlComment))
+                {
+                    XmlElement xml2 = obj as XmlElement;
+                    string text = xml2.Attr("mask");
+                    Tiles tiles;
+                    if (text == "center")
+                    {
+                        tiles = data.Center;
+                    }
+                    else if (text == "padding")
+                    {
+                        tiles = data.Padded;
+                    }
+                    else
+                    {
+                        Masked masked = new Masked();
+                        tiles = masked.Tiles;
+                        int i = 0;
+                        int num = 0;
+                        while (i < text.Length)
+                        {
+                            if (text[i] == '0')
+                            {
+                                masked.Mask[num++] = 0;
+                            }
+                            else if (text[i] == '1')
+                            {
+                                masked.Mask[num++] = 1;
+                            }
+                            else if (text[i] == 'x' || text[i] == 'X')
+                            {
+                                masked.Mask[num++] = 2;
+                            }
+                            i++;
+                        }
+                        data.Masked.Add(masked);
+                    }
+                    string[] array = xml2.Attr("tiles").Split(new char[]
+                    {
+                        ';'
+                    });
+                    for (int j = 0; j < array.Length; j++)
+                    {
+                        string[] array2 = array[j].Split(new char[]
+                        {
+                            ','
+                        });
+                        int x = int.Parse(array2[0]);
+                        int y = int.Parse(array2[1]);
+                        MTexture item = tileset[x, y];
+                        tiles.Textures.Add(item);
+                    }
+                    if (xml2.HasAttr("sprites"))
+                    {
+                        foreach (string item2 in xml2.Attr("sprites").Split(new char[]
+                        {
+                            ','
+                        }))
+                        {
+                            tiles.OverlapSprites.Add(item2);
+                        }
+                        tiles.HasOverlays = true;
+                    }
+                }
+            }
+            data.Masked.Sort(delegate (Masked a, Masked b)
+            {
+                int num2 = 0;
+                int num3 = 0;
+                for (int k = 0; k < 9; k++)
+                {
+                    if (a.Mask[k] == 2)
+                    {
+                        num2++;
+                    }
+                    if (b.Mask[k] == 2)
+                    {
+                        num3++;
+                    }
+                }
+                return num2 - num3;
+            });
+        }
+
+        public void LoadTileset(string filename)
+        {
+            Dictionary<char, XmlElement> dictionary = new Dictionary<char, XmlElement>();
+            this.lookup = new Dictionary<char, TerrainType>();
+            foreach (object obj in Calc.LoadContentXML(filename).GetElementsByTagName("Tileset"))
+            {
+                XmlElement xmlElement = (XmlElement)obj;
+                char c = xmlElement.AttrChar("id");
+                Tileset tileset = new Tileset(GFX.Game["tilesets/" + xmlElement.Attr("path")], 8, 8);
+                TerrainType terrainType = new TerrainType(c);
+                this.ReadInto(terrainType, tileset, xmlElement);
+                if (xmlElement.HasAttr("copy"))
+                {
+                    char key = xmlElement.AttrChar("copy");
+                    if (!dictionary.ContainsKey(key))
+                    {
+                        throw new Exception("Copied tilesets must be defined before the tilesets that copy them!");
+                    }
+                    this.ReadInto(terrainType, tileset, dictionary[key]);
+                }
+                if (xmlElement.HasAttr("ignores"))
+                {
+                    foreach (string text in xmlElement.Attr("ignores").Split(new char[]
+                    {
+                        ','
+                    }))
+                    {
+                        if (text.Length > 0)
+                        {
+                            terrainType.Ignores.Add(text[0]);
+                        }
+                    }
+                }
+                dictionary.Add(c, xmlElement);
+                this.lookup.Add(c, terrainType);
+            }
+        }
+
+        private bool IsEmpty(char id)
+        {
+            return id == '0' || id == '\0';
+        }
+
+        private char GetTile(VirtualMap<char> mapData, int x, int y, Rectangle forceFill, char forceID, Autotiler.Behaviour behaviour)
+        {
+            if (forceFill.Contains(x, y))
+            {
+                return forceID;
+            }
+            if (mapData == null)
+            {
+                if (!behaviour.EdgesExtend)
+                {
+                    return '0';
+                }
+                return forceID;
+            }
+            else
+            {
+                if (x >= 0 && y >= 0 && x < mapData.Columns && y < mapData.Rows)
+                {
+                    return mapData[x, y];
+                }
+                if (!behaviour.EdgesExtend)
+                {
+                    return '0';
+                }
+                int x2 = Calc.Clamp(x, 0, mapData.Columns - 1);
+                int y2 = Calc.Clamp(y, 0, mapData.Rows - 1);
+                return mapData[x2, y2];
+            }
+        }
+
+        private bool CheckTile(TerrainType set, VirtualMap<char> mapData, int x, int y, Rectangle forceFill, Autotiler.Behaviour behaviour)
+        {
+            if (forceFill.Contains(x, y))
+            {
+                return true;
+            }
+            if (mapData == null)
+            {
+                return behaviour.EdgesExtend;
+            }
+            if (x >= 0 && y >= 0 && x < mapData.Columns && y < mapData.Rows)
+            {
+                char c = mapData[x, y];
+                return !this.IsEmpty(c) && !set.Ignore(c);
+            }
+            if (!behaviour.EdgesExtend)
+            {
+                return false;
+            }
+            char c2 = mapData[Calc.Clamp(x, 0, mapData.Columns - 1), Calc.Clamp(y, 0, mapData.Rows - 1)];
+            return !this.IsEmpty(c2) && !set.Ignore(c2);
+        }
+
+        private bool CheckForSameLevel(int x1, int y1, int x2, int y2)
+        {
+            foreach (Rectangle rectangle in this.LevelBounds)
+            {
+                if (rectangle.Contains(x1, y1) && rectangle.Contains(x2, y2))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         static LevelEditor()
         {
             LevelEditor.area = AreaKey.None;
         }
 
+        private Tiles TileHandler(VirtualMap<char> mapData, int x, int y, Rectangle forceFill, char forceID, Autotiler.Behaviour behaviour)
+        {
+            char tile = this.GetTile(mapData, x, y, forceFill, forceID, behaviour);
+            if (this.IsEmpty(tile))
+            {
+                return null;
+            }
+            TerrainType terrainType = this.lookup[tile];
+            bool flag = true;
+            int num = 0;
+            for (int i = -1; i < 2; i++)
+            {
+                for (int j = -1; j < 2; j++)
+                {
+                    bool flag2 = this.CheckTile(terrainType, mapData, x + j, y + i, forceFill, behaviour);
+                    if (!flag2 && behaviour.EdgesIgnoreOutOfLevel && !this.CheckForSameLevel(x, y, x + j, y + i))
+                    {
+                        flag2 = true;
+                    }
+                    this.adjacent[num++] = (byte)(flag2 ? 1 : 0);
+                    if (!flag2)
+                    {
+                        flag = false;
+                    }
+                }
+            }
+            if (!flag)
+            {
+                foreach (Masked masked in terrainType.Masked)
+                {
+                    bool flag3 = true;
+                    int num2 = 0;
+                    while (num2 < 9 && flag3)
+                    {
+                        if (masked.Mask[num2] != 2 && masked.Mask[num2] != this.adjacent[num2])
+                        {
+                            flag3 = false;
+                        }
+                        num2++;
+                    }
+                    if (flag3)
+                    {
+                        return masked.Tiles;
+                    }
+                }
+                return null;
+            }
+            bool flag4;
+            if (!behaviour.PaddingIgnoreOutOfLevel)
+            {
+                flag4 = (!this.CheckTile(terrainType, mapData, x - 2, y, forceFill, behaviour) || !this.CheckTile(terrainType, mapData, x + 2, y, forceFill, behaviour) || !this.CheckTile(terrainType, mapData, x, y - 2, forceFill, behaviour) || !this.CheckTile(terrainType, mapData, x, y + 2, forceFill, behaviour));
+            }
+            else
+            {
+                flag4 = ((!this.CheckTile(terrainType, mapData, x - 2, y, forceFill, behaviour) && this.CheckForSameLevel(x, y, x - 2, y)) || (!this.CheckTile(terrainType, mapData, x + 2, y, forceFill, behaviour) && this.CheckForSameLevel(x, y, x + 2, y)) || (!this.CheckTile(terrainType, mapData, x, y - 2, forceFill, behaviour) && this.CheckForSameLevel(x, y, x, y - 2)) || (!this.CheckTile(terrainType, mapData, x, y + 2, forceFill, behaviour) && this.CheckForSameLevel(x, y, x, y + 2)));
+            }
+            if (flag4)
+            {
+                return this.lookup[tile].Padded;
+            }
+            return this.lookup[tile].Center;
+        }
+
         public LevelEditor(Session session) : base()
         {
+            fiTexture = typeof(VirtualTexture).GetField("Texture", BindingFlags.NonPublic | BindingFlags.Instance);
+            LoadTileset(Path.Combine("Graphics", "ForegroundTiles.xml"));
+
+            Logger.Log("CLE", lookup['1'].Center.Textures.Count.ToString());
+            Logger.Log("CLE", lookup['1'].Padded.Textures.Count.ToString());
 
             this.hovered = new Dictionary<string, LevelData>();
 
@@ -71,6 +400,10 @@ namespace CelesteLevelEditor
             }
 
             viewBuffer = VirtualContent.CreateRenderTarget("editorView", Math.Min(1920, Engine.ViewWidth), Math.Min(1080, Engine.ViewHeight), false, true, 0);
+
+            adjacent = new byte[9];
+
+            LevelBounds = new List<Rectangle>();
 
             LoadLevel();
         }
@@ -116,7 +449,7 @@ namespace CelesteLevelEditor
                         virtualMap3[m - tileBounds.Left, n - tileBounds.Top] = true;
                     }
                 }
-                GFX.FGAutotiler.LevelBounds.Add(new Rectangle(levelData.TileBounds.X - tileBounds.X, levelData.TileBounds.Y - tileBounds.Y, levelData.TileBounds.Width, levelData.TileBounds.Height));
+                this.LevelBounds.Add(new Rectangle(levelData.TileBounds.X - tileBounds.X, levelData.TileBounds.Y - tileBounds.Y, levelData.TileBounds.Width, levelData.TileBounds.Height));
             }
             foreach (Rectangle rectangle in mapData.Filler)
             {
@@ -388,6 +721,37 @@ namespace CelesteLevelEditor
                     if (fgData[virtualX, virtualY] != tile)
                     {
                         this.fgData[virtualX, virtualY] = tile;
+
+                        Autotiler.Behaviour behaviour = new Autotiler.Behaviour
+                        {
+                            EdgesExtend = true,
+                            EdgesIgnoreOutOfLevel = false,
+                            PaddingIgnoreOutOfLevel = true
+                        };
+
+                        for ( int i = -1; i <= 1; i++)
+                        {
+                            for( int j = -1; j <= 1; j++)
+                            {
+                                int _x = virtualX + i;
+                                int _y = virtualY + j;
+
+                                if (_x < 0) _x = 0;
+                                if (_x > w) _x = w;
+                                if (_y < 0) _y = 0;
+                                if (_y > h) _y = h;
+
+                                Tiles tiles = TileHandler(fgData, _x, _y, Rectangle.Empty, '0', behaviour);
+                                if (tiles != null)
+                                    fgTiles.Tiles.Tiles[_x, _y] = tiles.Textures[0];
+                                //else
+                                    //fgTiles.Tiles.Tiles[_x, _y] = null;
+                            }
+                        }
+
+                        //TerrainType terrainType = lookup[tile];
+                        //this.fgTiles.Tiles.Tiles[virtualX, virtualY] = Calc.Random.Choose(terrainType.Masked[1].Tiles.Textures);
+                        //fiTexture.SetValue(this.fgTiles.Tiles.Tiles[virtualX, virtualY], lookup[tile].Padded.Textures[0]);
                         fgDataUpdated = true;
                     }
                 }
@@ -401,7 +765,7 @@ namespace CelesteLevelEditor
                 }
             }
 
-            if( fgDataUpdated && frameCount == 0)
+            if( fgDataUpdated && MInput.Mouse.ReleasedLeftButton)
             {
                 Rectangle tileBounds = this.session.MapData.TileBounds;
                 Vector2 position = new Vector2(tileBounds.X, tileBounds.Y) * 8f;
@@ -411,7 +775,7 @@ namespace CelesteLevelEditor
                 fgTiles.Tiles.ClipCamera = LevelEditor.Camera;
                 Calc.PopRandom();
             }
-            if (bgDataUpdated && frameCount == 4)
+            if (bgDataUpdated && MInput.Mouse.ReleasedRightButton)
             {
                 Rectangle tileBounds = this.session.MapData.TileBounds;
                 Vector2 position = new Vector2(tileBounds.X, tileBounds.Y) * 8f;
@@ -421,10 +785,6 @@ namespace CelesteLevelEditor
                 bgTiles.Tiles.ClipCamera = LevelEditor.Camera;
                 Calc.PopRandom();
             }
-
-            frameCount++;
-            if (frameCount > 7)
-                frameCount = 0;
 
             this.lastMouseScreenPosition = MInput.Mouse.Position;
             base.Update();
