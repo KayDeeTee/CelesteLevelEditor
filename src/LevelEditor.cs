@@ -39,16 +39,250 @@ namespace CelesteLevelEditor
 
         public char tile;
 
-        private MTexture button;
-        private MTexture bg1;
+        public char[] fgtilebuttons;
+        public MTexture[] fgtileicons;
 
-        private Dictionary<string, LevelData> hovered;
+        private MTexture bgset1;
+        private MTexture set1button;
+        private MTexture set1buttonsel;
+        private MTexture noset1;
+
+        public int selected_item = 0;
 
         public Dictionary<char, TerrainType> lookup;
 
         public FieldInfo fiTexture;
 
         public byte[] adjacent;
+
+        public MapElement MapDataToXML(MapData mapData)
+        {
+            //create map 
+            MapElement mapElement = new MapElement();
+            mapElement.Name = "Map";
+            mapElement.Attributes.Add("_package", mapData.Data.Name);
+
+            //create filler
+
+            MapElement filler = new MapElement();
+            filler.Name = "Filler";
+            foreach( Rectangle rect in mapData.Filler)
+            {
+                MapElement fill = new MapElement();
+                fill.Name = "rect";
+                fill.Attributes.Add("x", rect.Left);
+                fill.Attributes.Add("y", rect.Top);
+                fill.Attributes.Add("w", rect.Width);
+                fill.Attributes.Add("h", rect.Height);
+                filler.Children.Add(fill);
+            }
+
+            mapElement.Children.Add(filler);
+
+            //create levels
+            
+            MapElement levels = new MapElement();
+            levels.Name = "levels";
+            foreach( LevelData level in mapData.Levels)
+            {
+                MapElement lvl = new MapElement();
+                //level definition
+                lvl.Name = "level";
+                lvl.Attributes.Add("name",                  level.Name);
+                lvl.Attributes.Add("width",                 level.Bounds.Width);
+                lvl.Attributes.Add("height",                level.Bounds.Height);
+                lvl.Attributes.Add("windPattern",           level.WindPattern);
+                lvl.Attributes.Add("dark",                  level.Dark);
+                lvl.Attributes.Add("cameraOffsetX",         level.CameraOffset.X);
+                lvl.Attributes.Add("cameraOffsetY",         level.CameraOffset.Y);
+                lvl.Attributes.Add("alt_music",             level.AltMusic);
+                lvl.Attributes.Add("music",                 level.Music);
+                lvl.Attributes.Add("musicLayer1",           level.MusicLayers[0]);
+                lvl.Attributes.Add("musicLayer2",           level.MusicLayers[1]);
+                lvl.Attributes.Add("musicLayer3",           level.MusicLayers[2]);
+                lvl.Attributes.Add("musicLayer4",           level.MusicLayers[3]);
+                lvl.Attributes.Add("musicProgress",         level.MusicProgress);
+                lvl.Attributes.Add("ambience",              level.Ambience);
+                lvl.Attributes.Add("ambienceProgress",      level.AmbienceProgress);
+                lvl.Attributes.Add("underwater",            level.Underwater);
+                lvl.Attributes.Add("space",                 level.Space);
+                lvl.Attributes.Add("disableDownTransition", level.DisableDownTransition);
+                lvl.Attributes.Add("whisper",               level.MusicWhispers);
+                lvl.Attributes.Add("x",                     level.Bounds.X);
+                lvl.Attributes.Add("y",                     level.Bounds.Y);
+                lvl.Attributes.Add("c",                     level.EditorColorIndex);
+
+                //entity definition
+                MapElement entities = new MapElement();
+                entities.Name = "entities";
+                entities.Attributes.Add("offsetX", 0);
+                entities.Attributes.Add("offsetY", 0);
+                foreach ( EntityData entityData in level.Entities)
+                {
+                    MapElement entityElement = new MapElement();
+                    entityElement.Name = entityData.Name;
+                    entityElement.Attributes = entityData.Values;
+
+                    foreach( Vector2 node in entityData.Nodes)
+                    {
+                        MapElement n = new MapElement();
+                        n.Name = "node";
+                        n.Attributes.Add("x", node.X);
+                        n.Attributes.Add("y", node.Y);
+                        entityElement.Children.Add(n);
+                    }
+
+                    entities.Children.Add(entityElement);
+                }
+                //lvl.Children.Add(entities);
+
+                //trigger definition
+                MapElement triggers = new MapElement();
+                triggers.Name = "triggers";
+                triggers.Attributes.Add("offsetX", 0);
+                triggers.Attributes.Add("offsetY", 0);
+                foreach (EntityData entityData in level.Triggers)
+                {
+                    MapElement entityElement = new MapElement();
+                    entityElement.Name = entityData.Name;
+                    entityElement.Attributes = entityData.Values;
+
+                    foreach (Vector2 node in entityData.Nodes)
+                    {
+                        MapElement n = new MapElement();
+                        n.Name = "node";
+                        n.Attributes.Add("x", node.X);
+                        n.Attributes.Add("y", node.Y);
+                        triggers.Children.Add(n);
+                    }
+
+                    triggers.Children.Add(entityElement);
+                }
+                //lvl.Children.Add(triggers);
+
+                //fgtiles definition
+                MapElement fgtile = new MapElement();
+                fgtile.Name = "fgtiles";
+                fgtile.Attributes.Add("offsetX", 0);
+                fgtile.Attributes.Add("offsetY", 0);
+                fgtile.Attributes.Add("tileset", "Scenery");
+                fgtile.Attributes.Add("exportMode", 0);
+                fgtile.Attributes.Add("innerText", level.FgTiles);
+                lvl.Children.Add(fgtile);
+
+                //fgdecals definition
+                MapElement fgDecals = new MapElement();
+                fgDecals.Name = "fgdecals";
+                fgDecals.Attributes.Add("offsetX", 0);
+                fgDecals.Attributes.Add("offsetY", 0);
+                foreach ( DecalData decalData in level.FgDecals)
+                {
+                    MapElement decal = new MapElement();
+
+                    decal.Name = "decal";
+                    decal.Attributes.Add("x", decalData.Position.X);
+                    decal.Attributes.Add("y", decalData.Position.Y);
+                    decal.Attributes.Add("scaleX", decalData.Scale.X);
+                    decal.Attributes.Add("scaleY", decalData.Scale.X);
+                    decal.Attributes.Add("texture", decalData.Texture);
+
+                    fgDecals.Children.Add(decal);
+                }
+                lvl.Children.Add(fgDecals);
+
+                //solids definition
+                MapElement solids = new MapElement();
+                solids.Name = "solids";
+                solids.Attributes.Add("offsetX", 0);
+                solids.Attributes.Add("offsetY", 0);
+                solids.Attributes.Add("innerText", level.Solids);
+                lvl.Children.Add(solids);
+
+                //bgtiles definition
+                MapElement bgtile = new MapElement();
+                bgtile.Name = "bgtiles";
+                bgtile.Attributes.Add("offsetX", 0);
+                bgtile.Attributes.Add("offsetY", 0);
+                bgtile.Attributes.Add("tileset", "Scenery");
+                bgtile.Attributes.Add("exportMode", 0);
+                bgtile.Attributes.Add("innerText", level.BgTiles);
+                lvl.Children.Add(bgtile);
+
+                //bgdecals definition
+                MapElement bgDecals = new MapElement();
+                bgDecals.Name = "bgdecals";
+                bgDecals.Attributes.Add("offsetX", 0);
+                bgDecals.Attributes.Add("offsetY", 0);
+                foreach (DecalData decalData in level.BgDecals)
+                {
+                    MapElement decal = new MapElement();
+
+                    decal.Name = "decal";
+                    decal.Attributes.Add("x", decalData.Position.X);
+                    decal.Attributes.Add("y", decalData.Position.Y);
+                    decal.Attributes.Add("scaleX", decalData.Scale.X);
+                    decal.Attributes.Add("scaleY", decalData.Scale.X);
+                    decal.Attributes.Add("texture", decalData.Texture);
+
+                    bgDecals.Children.Add(decal);
+                }
+                lvl.Children.Add(bgDecals);
+
+                //bg definition
+                MapElement bg = new MapElement();
+                bg.Name = "bg";
+                bg.Attributes.Add("offsetX", 0);
+                bg.Attributes.Add("offsetY", 0);
+                bg.Attributes.Add("innerText", level.Bg);
+                lvl.Children.Add(bg);
+
+                //objtiles definition
+                MapElement objtile = new MapElement();
+                objtile.Name = "objtiles";
+                objtile.Attributes.Add("offsetX", 0);
+                objtile.Attributes.Add("offsetY", 0);
+                objtile.Attributes.Add("tileset", "Scenery");
+                objtile.Attributes.Add("exportMode", 0);
+                objtile.Attributes.Add("innerText", level.ObjTiles);
+                lvl.Children.Add(objtile);
+
+                levels.Children.Add(lvl);
+            }
+
+            mapElement.Children.Add(levels);
+            
+
+            MapElement styles = new MapElement();
+            styles.Name = "Style";
+
+            MapElement backgrounds = new MapElement();
+            backgrounds.Name = "Backgrounds";
+            
+            foreach( BinaryPacker.Element background in  mapData.Background.Children)
+            {
+                MapElement backgroundElement = new MapElement();
+                backgroundElement.Name = background.Name;
+                backgroundElement.Attributes = background.Attributes;
+                backgrounds.Children.Add(backgroundElement);
+            }
+            styles.Children.Add(backgrounds);
+
+            MapElement foregrounds = new MapElement();
+            foregrounds.Name = "Foregrounds";
+
+            foreach (BinaryPacker.Element foreground in mapData.Foreground.Children)
+            {
+                MapElement foregroundElement = new MapElement();
+                foregroundElement.Name = foreground.Name;
+                foregroundElement.Attributes = foreground.Attributes;
+                foregrounds.Children.Add(foregroundElement);
+            }
+            styles.Children.Add(foregrounds);
+
+            mapElement.Children.Add(styles);
+
+            return mapElement;
+        }
 
         public class TerrainType
         {
@@ -378,10 +612,9 @@ namespace CelesteLevelEditor
             Logger.Log("CLE", lookup['1'].Center.Textures.Count.ToString());
             Logger.Log("CLE", lookup['1'].Padded.Textures.Count.ToString());
 
-            this.hovered = new Dictionary<string, LevelData>();
-
-            button = GFX.Gui["editor/button"];
-            bg1 = GFX.Gui["editor/bg-1"];
+            bgset1 = GFX.Gui["editor/bg-set-1"];
+            set1button = GFX.Gui["editor/bt-set-1"];
+            set1buttonsel = GFX.Gui["editor/bt-set-1-sel"];
 
             AreaKey area = session.Area;
             area.ID = Calc.Clamp(area.ID, 0, AreaData.Areas.Count - 1);
@@ -390,6 +623,32 @@ namespace CelesteLevelEditor
             this.session = session;
 
             tile = '1';
+
+            fgtilebuttons = new char[] { '1', '3', '4', '5', '6', '7', '8', '9', 'a', 'd', 'e', 'b', 'f', 'g', 'G', 'i', 'j', 'c', 'k', 'h', 'l', '0' };
+            fgtileicons = new MTexture[] {
+                GFX.Gui["editor/icons/dirt"],            //1
+                GFX.Gui["editor/icons/snow"],            //3
+                GFX.Gui["editor/icons/girder"],          //4
+                GFX.Gui["editor/icons/tower"],           //5
+                GFX.Gui["editor/icons/stone"],           //6
+                GFX.Gui["editor/icons/cement"],          //7
+                GFX.Gui["editor/icons/rock"],            //8
+                GFX.Gui["editor/icons/wood"],            //9
+                GFX.Gui["editor/icons/woodStoneEdges"],  //a
+                GFX.Gui["editor/icons/templeA"],         //d
+                GFX.Gui["editor/icons/templeB"],         //e
+                GFX.Gui["editor/icons/cliffside"],       //b
+                GFX.Gui["editor/icons/cliffsideAlt"],    //f
+                GFX.Gui["editor/icons/reflection"],      //g
+                GFX.Gui["editor/icons/reflectionAlt"],   //G
+                GFX.Gui["editor/icons/summit"],          //i
+                GFX.Gui["editor/icons/summitNoSnow"],    //j
+                GFX.Gui["editor/icons/poolEdges"],       //c
+                GFX.Gui["editor/icons/core"],            //k
+                GFX.Gui["editor/icons/grass"],           //h
+                GFX.Gui["editor/icons/deadgrass"],       //l
+                GFX.Gui["editor/icons/deadgrass"]        //0
+            };
 
             if (area != LevelEditor.area)
             {
@@ -410,6 +669,9 @@ namespace CelesteLevelEditor
 
         private void LoadLevel()
         {
+
+            MapCoder.ToXML("Content/Maps/1-ForsakenCity.bin", "Content/Maps/1-ForsakenCity.xml");
+
             MapData mapData = this.session.MapData;
             AreaData areaData = AreaData.Get(this.session);
             if (this.session.Area.ID == 0)
@@ -635,12 +897,13 @@ namespace CelesteLevelEditor
             LevelEditor.Camera.Position += new Vector2((float)Input.MoveX.Value, (float)Input.MoveY.Value) * 600f * Engine.DeltaTime;
             this.UpdateMouse();
 
-            hovered.Clear();
-
-            foreach( LevelData levelData in mapData.Levels)
+            if (MInput.Keyboard.Pressed(Keys.S))
             {
-                if (Check(levelData, mousePosition))
-                    this.hovered.Add(levelData.Name, levelData);
+                MapElement data = MapDataToXML(mapData);
+                Logger.Log("CLE",data.ToString());
+                XmlDocument doc = new XmlDocument();
+                MapCoder.WriteXML(data, doc, doc);
+                doc.Save("Content/Maps/temp.xml");
             }
 
             if (MInput.Keyboard.Pressed(Keys.Back))
@@ -666,103 +929,122 @@ namespace CelesteLevelEditor
             if (MInput.Keyboard.Pressed(Keys.D9))
                 tile = !MInput.Keyboard.Check(Keys.LeftShift) ? 'h' : 'l'; //GRASS | DEAD GRASS 
 
-            if (  (MInput.Mouse.CheckLeftButton || MInput.Mouse.CheckRightButton))
+            if( MInput.Mouse.PressedLeftButton && MInput.Mouse.Position.Y > 16 && MInput.Mouse.Position.Y < 96)
             {
-                int room_x = -1;
-                int room_y = -1;
-                if (hovered.Count == 1)
+                int button_x = 96;
+                for (int i = 0; i < 21; i++)
                 {
-                    foreach (LevelData levelData in hovered.Values)
-                    {
-                        room_x = (int)((this.mousePosition.X - levelData.Bounds.X) / 8f);
-                        room_y = (int)((this.mousePosition.Y - levelData.Bounds.Y) / 8f);
+                    if (i % 3 == 0)
+                        button_x += 32;
+                    button_x += 64;
 
-                        if( MInput.Mouse.CheckLeftButton)
-                        {                          
-                            char[] charArray = levelData.Solids.ToCharArray();
-                            int pos = (room_y * (int)(levelData.Bounds.Width/8)) + room_x;
-                            charArray[pos] = tile;
-                            levelData.Solids = new string(charArray);
-                        }
-                        if (MInput.Mouse.CheckRightButton)
-                        {
-                            char[] charArray = levelData.Bg.ToCharArray();
-                            int pos = (room_y * (int)(levelData.Bounds.Width / 8)) + room_x;
-                            charArray[pos] = tile;
-                            levelData.Bg = new string(charArray);
-                        }
+                    if (MInput.Mouse.Position.X > button_x && MInput.Mouse.Position.X < button_x + 64)
+                    {
+                        selected_item = i;
+                        tile = fgtilebuttons[i];
                     }
+
                 }
+            }
 
-
-                int x = (int)(this.mousePosition / 8).X;
-                int y = (int)(this.mousePosition / 8).Y;
-                if (this.mousePosition.X < 0)
-                    x -= 1;
-                if (this.mousePosition.Y < 0)
-                    y -= 1;
-                int left = (int)fgTiles.Left / 8;
-                int w = fgTiles.Tiles.TilesX;
-                int top = (int)fgTiles.Top / 8;
-                int h = fgTiles.Tiles.TilesY;
-                int virtualX = x - left;
-                int virtualY = y - top;
-                if (virtualX < 0)
-                    virtualX = 0;
-                if (virtualX > w - 1)
-                    virtualX = w - 1;
-                if (virtualY < 0)
-                    virtualY = 0;
-                if (virtualY > h - 1)
-                    virtualY = h - 1;
-
-                if(MInput.Mouse.CheckLeftButton && fgData != null)
-                {
-                    if (fgData[virtualX, virtualY] != tile)
+            if (  (MInput.Mouse.CheckLeftButton || MInput.Mouse.CheckRightButton) && MInput.Mouse.Position.Y > 96)
+            {
+                    int room_x = -1;
+                    int room_y = -1;
+                    foreach (LevelData levelData in mapData.Levels)
                     {
-                        this.fgData[virtualX, virtualY] = tile;
-
-                        Autotiler.Behaviour behaviour = new Autotiler.Behaviour
+                        if (Check(levelData, mousePosition))
                         {
-                            EdgesExtend = true,
-                            EdgesIgnoreOutOfLevel = false,
-                            PaddingIgnoreOutOfLevel = true
-                        };
+                            room_x = (int)((this.mousePosition.X - levelData.Bounds.X) / 8f);
+                            room_y = (int)((this.mousePosition.Y - levelData.Bounds.Y) / 8f);
 
-                        for ( int i = -1; i <= 1; i++)
-                        {
-                            for( int j = -1; j <= 1; j++)
+                            if (MInput.Mouse.CheckLeftButton)
                             {
-                                int _x = virtualX + i;
-                                int _y = virtualY + j;
-
-                                if (_x < 0) _x = 0;
-                                if (_x > w) _x = w;
-                                if (_y < 0) _y = 0;
-                                if (_y > h) _y = h;
-
-                                Tiles tiles = TileHandler(fgData, _x, _y, Rectangle.Empty, '0', behaviour);
-                                if (tiles != null)
-                                    fgTiles.Tiles.Tiles[_x, _y] = tiles.Textures[0];
-                                //else
-                                    //fgTiles.Tiles.Tiles[_x, _y] = null;
+                                char[] charArray = levelData.Solids.ToCharArray();
+                                int pos = (room_y * ((int)(levelData.Bounds.Width / 8)+1)) + room_x;
+                                charArray[pos] = tile;
+                                levelData.Solids = new string(charArray);
+                            }
+                            if (MInput.Mouse.CheckRightButton)
+                            {
+                                char[] charArray = levelData.Bg.ToCharArray();
+                                int pos = (room_y * (int)(levelData.Bounds.Width / 8)) + room_x;
+                                charArray[pos] = tile;
+                                levelData.Bg = new string(charArray);
                             }
                         }
+                    }
+                    
 
-                        //TerrainType terrainType = lookup[tile];
-                        //this.fgTiles.Tiles.Tiles[virtualX, virtualY] = Calc.Random.Choose(terrainType.Masked[1].Tiles.Textures);
-                        //fiTexture.SetValue(this.fgTiles.Tiles.Tiles[virtualX, virtualY], lookup[tile].Padded.Textures[0]);
-                        fgDataUpdated = true;
-                    }
-                }
-                if (MInput.Mouse.CheckRightButton && bgData != null)
-                {
-                    if (bgData[virtualX, virtualY] != tile && (tile <= 'd' || Char.IsDigit(tile)))
+
+                    int x = (int)(this.mousePosition / 8).X;
+                    int y = (int)(this.mousePosition / 8).Y;
+                    if (this.mousePosition.X < 0)
+                        x -= 1;
+                    if (this.mousePosition.Y < 0)
+                        y -= 1;
+                    int left = (int)fgTiles.Left / 8;
+                    int w = fgTiles.Tiles.TilesX;
+                    int top = (int)fgTiles.Top / 8;
+                    int h = fgTiles.Tiles.TilesY;
+                    int virtualX = x - left;
+                    int virtualY = y - top;
+                    if (virtualX < 0)
+                        virtualX = 0;
+                    if (virtualX > w - 1)
+                        virtualX = w - 1;
+                    if (virtualY < 0)
+                        virtualY = 0;
+                    if (virtualY > h - 1)
+                        virtualY = h - 1;
+
+                    if (MInput.Mouse.CheckLeftButton && fgData != null)
                     {
-                        this.bgData[virtualX, virtualY] = tile;
-                        bgDataUpdated = true;
+                        if (fgData[virtualX, virtualY] != tile)
+                        {
+                            this.fgData[virtualX, virtualY] = tile;
+
+                            Autotiler.Behaviour behaviour = new Autotiler.Behaviour
+                            {
+                                EdgesExtend = true,
+                                EdgesIgnoreOutOfLevel = false,
+                                PaddingIgnoreOutOfLevel = true
+                            };
+
+                            for (int i = -1; i <= 1; i++)
+                            {
+                                for (int j = -1; j <= 1; j++)
+                                {
+                                    int _x = virtualX + i;
+                                    int _y = virtualY + j;
+
+                                    if (_x < 0) _x = 0;
+                                    if (_x > w) _x = w;
+                                    if (_y < 0) _y = 0;
+                                    if (_y > h) _y = h;
+
+                                    Tiles tiles = TileHandler(fgData, _x, _y, Rectangle.Empty, '0', behaviour);
+                                    if (tiles != null)
+                                        fgTiles.Tiles.Tiles[_x, _y] = tiles.Textures[0];
+                                    //else
+                                    //fgTiles.Tiles.Tiles[_x, _y] = null;
+                                }
+                            }
+
+                            //TerrainType terrainType = lookup[tile];
+                            //this.fgTiles.Tiles.Tiles[virtualX, virtualY] = Calc.Random.Choose(terrainType.Masked[1].Tiles.Textures);
+                            //fiTexture.SetValue(this.fgTiles.Tiles.Tiles[virtualX, virtualY], lookup[tile].Padded.Textures[0]);
+                            fgDataUpdated = true;
+                        }
                     }
-                }
+                    if (MInput.Mouse.CheckRightButton && bgData != null)
+                    {
+                        if (bgData[virtualX, virtualY] != tile && (tile <= 'd' || Char.IsDigit(tile)))
+                        {
+                            this.bgData[virtualX, virtualY] = tile;
+                            bgDataUpdated = true;
+                        }
+                    }
             }
 
             if( fgDataUpdated && MInput.Mouse.ReleasedLeftButton)
@@ -825,17 +1107,6 @@ namespace CelesteLevelEditor
             if (virtualY > h - 1)
                 virtualY = h - 1;
 
-            int room_x = -1;
-            int room_y = -1;
-            if (hovered.Count == 1)
-            {
-                foreach(LevelData levelData in hovered.Values)
-                {
-                    room_x = (int)((this.mousePosition.X - levelData.Bounds.X)/8f);
-                    room_y = (int)((this.mousePosition.Y - levelData.Bounds.Y)/8f);
-                }
-            }
-
             Draw.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, DepthStencilState.None, RasterizerState.CullNone, null, LevelEditor.Camera.Matrix * Engine.ScreenMatrix);
 
             float width = 1920 / LevelEditor.Camera.Zoom;
@@ -856,31 +1127,32 @@ namespace CelesteLevelEditor
 
             Draw.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone, null, Engine.ScreenMatrix);
 
-            bg1.Draw(new Vector2(0, 0), new Vector2(0, 0), Color.White, new Vector2(16, Engine.ViewHeight / 4));
-            bg1.Draw(new Vector2((Engine.Width-48), 0), new Vector2(0, 0), Color.White, new Vector2(6, Engine.ViewHeight / 4));
+            bgset1.Draw(new Vector2(0, 0), new Vector2(0, 0), Color.White, new Vector2(Engine.ViewWidth / 4, 12));
+            int button_x = 96;
+            for (int i = 0; i < 21; i++)
+            {
+                if (i % 3 == 0)
+                    button_x += 32;
+                button_x += 64;
+                if( i == selected_item )
+                    set1buttonsel.Draw(new Vector2(button_x, 16), new Vector2(0, 0), Color.White, 2f, 0f, SpriteEffects.None);
+                else
+                    set1button.Draw(new Vector2(button_x, 16), new Vector2(0, 0), Color.White, 2f, 0f, SpriteEffects.None);
+                fgtileicons[i].Draw(new Vector2(button_x+8, 16+8), new Vector2(0, 0), Color.White, 2f, 0f, SpriteEffects.None);
+            }
 
-            button.Draw(new Vector2((Engine.Width - 40), 16), new Vector2(0, 0), Color.White, new Vector2(2, 2));
-            button.Draw(new Vector2((Engine.Width - 40), 48), new Vector2(0, 0), Color.White, new Vector2(2, 2));
-            button.Draw(new Vector2((Engine.Width - 40), 80), new Vector2(0, 0), Color.White, new Vector2(2, 2));
-            button.Draw(new Vector2((Engine.Width - 40), 112), new Vector2(0, 0), Color.White, new Vector2(2, 2));
-
+            //bg1.Draw(new Vector2((Engine.Width-48), 0), new Vector2(0, 0), Color.White, new Vector2(6, Engine.ViewHeight / 4));
 
             PixelFontSize pixelFontSize = ActiveFont.Font.Get(16f);
             pixelFontSize.Size = 96f;
 
-            ActiveFont.Draw("Tile: "+tile.ToString(), new Vector2(16, 32), Color.Red);
+            //ActiveFont.Draw("Tile: "+tile.ToString(), new Vector2(16, 32), Color.Red);
 
-            ActiveFont.Draw("RX: " + room_x.ToString(), new Vector2(16, 64), Color.Red);
-            ActiveFont.Draw("RY: " + room_y.ToString(), new Vector2(16, 96), Color.Red);
+            //ActiveFont.Draw("RX: " + room_x.ToString(), new Vector2(16, 64), Color.Red);
+            //ActiveFont.Draw("RY: " + room_y.ToString(), new Vector2(16, 96), Color.Red);
 
-
-            int roomListOffset = 0;
-            foreach( string roomName in hovered.Keys)
-            {
-
-                ActiveFont.Draw("R:" + roomName, new Vector2(16, 128+(roomListOffset*32)), Color.Red);
-                roomListOffset++;
-            }
+            ActiveFont.Draw(MInput.Mouse.Position.X.ToString(), new Vector2(16, 128), Color.White);
+            ActiveFont.Draw(MInput.Mouse.Position.Y.ToString(), new Vector2(16, 160), Color.White);
 
             //ActiveFont.Draw(x.ToString(), new Vector2(16, 32), Color.Red);
             //ActiveFont.Draw(y.ToString(), new Vector2(16, 64), Color.Red);
