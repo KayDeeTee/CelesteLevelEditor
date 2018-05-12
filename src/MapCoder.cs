@@ -211,7 +211,6 @@ namespace CelesteLevelEditor
         public static void WriteXML(MapElement element, XmlDocument doc, XmlNode node)
         {
             XmlElement xml = doc.CreateElement(element.Name);
-
             foreach (KeyValuePair<string, object> pair in element.Attributes)
             {
                 if (pair.Key == InnerTextAttributeName)

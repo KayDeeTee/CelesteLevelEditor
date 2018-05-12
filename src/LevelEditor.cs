@@ -15,10 +15,54 @@ namespace CelesteLevelEditor
 {
     class LevelEditor : Scene
     {
+        public enum Tool
+        {
+            brush,
+            fill
+        }
+
+        private static LevelEditor _instance;
+
+        public static LevelEditor instance
+        {
+            get
+            {
+                return _instance;
+            }
+        }
+
+        public static Tool tool;
+
+        public class EntityInfo
+        {
+            public int x;
+            public int y;
+            public int w;
+            public int h;
+            public Color c;
+            public EntityInfo(int x, int y, int w, int h, Color c)
+            {
+                this.x = x;
+                this.y = y;
+                this.w = w;
+                this.h = h;
+                this.c = c;
+            }
+        }
+
+        public List<Backdrop> bg_bg;
+        public List<Backdrop> bg_fg;
+        public BackdropRenderer Background;
+        public BackdropRenderer Foreground;
+
         public List<Rectangle> LevelBounds;
+
+        public EntityData lastHoveredEntity;
 
         public Session session;
         public MapData mapData;
+
+        public TextBox textBox;
 
         public Vector2 mousePosition;
         public Vector2 lastMouseScreenPosition;
@@ -35,17 +79,26 @@ namespace CelesteLevelEditor
         public bool fgDataUpdated;
         public bool bgDataUpdated;
 
+        private float totalTime;
+
         private VirtualRenderTarget viewBuffer;
 
-        public char tile;
+        public static char tile;
 
-        public char[] fgtilebuttons;
-        public MTexture[] fgtileicons;
+        public static char[] fgtilebuttons;
+        public static MTexture[] fgtileicons;
+
+        public static MTexture transTexture;
+
+        public static Dictionary<string, EntityInfo> eInfo;
 
         private MTexture bgset1;
         private MTexture set1button;
         private MTexture set1buttonsel;
         private MTexture noset1;
+
+        public static GUIElement selected;
+        public List<GUIElement> guiElements;
 
         public int selected_item = 0;
 
@@ -88,7 +141,7 @@ namespace CelesteLevelEditor
                 MapElement lvl = new MapElement();
                 //level definition
                 lvl.Name = "level";
-                lvl.Attributes.Add("name",                  level.Name);
+                lvl.Attributes.Add("name",                  "lvl_" + level.Name);
                 lvl.Attributes.Add("width",                 level.Bounds.Width);
                 lvl.Attributes.Add("height",                level.Bounds.Height);
                 lvl.Attributes.Add("windPattern",           level.WindPattern);
@@ -97,10 +150,12 @@ namespace CelesteLevelEditor
                 lvl.Attributes.Add("cameraOffsetY",         level.CameraOffset.Y);
                 lvl.Attributes.Add("alt_music",             level.AltMusic);
                 lvl.Attributes.Add("music",                 level.Music);
-                lvl.Attributes.Add("musicLayer1",           level.MusicLayers[0]);
-                lvl.Attributes.Add("musicLayer2",           level.MusicLayers[1]);
-                lvl.Attributes.Add("musicLayer3",           level.MusicLayers[2]);
-                lvl.Attributes.Add("musicLayer4",           level.MusicLayers[3]);
+
+                lvl.Attributes.Add("musicLayer1",           level.MusicLayers[0] == 0 ? "False" : "True");
+                lvl.Attributes.Add("musicLayer2",           level.MusicLayers[1] == 0 ? "False" : "True");
+                lvl.Attributes.Add("musicLayer3",           level.MusicLayers[2] == 0 ? "False" : "True");
+                lvl.Attributes.Add("musicLayer4",           level.MusicLayers[3] == 0 ? "False" : "True");
+
                 lvl.Attributes.Add("musicProgress",         level.MusicProgress);
                 lvl.Attributes.Add("ambience",              level.Ambience);
                 lvl.Attributes.Add("ambienceProgress",      level.AmbienceProgress);
@@ -112,30 +167,6 @@ namespace CelesteLevelEditor
                 lvl.Attributes.Add("y",                     level.Bounds.Y);
                 lvl.Attributes.Add("c",                     level.EditorColorIndex);
 
-                //entity definition
-                MapElement entities = new MapElement();
-                entities.Name = "entities";
-                entities.Attributes.Add("offsetX", 0);
-                entities.Attributes.Add("offsetY", 0);
-                foreach ( EntityData entityData in level.Entities)
-                {
-                    MapElement entityElement = new MapElement();
-                    entityElement.Name = entityData.Name;
-                    entityElement.Attributes = entityData.Values;
-
-                    foreach( Vector2 node in entityData.Nodes)
-                    {
-                        MapElement n = new MapElement();
-                        n.Name = "node";
-                        n.Attributes.Add("x", node.X);
-                        n.Attributes.Add("y", node.Y);
-                        entityElement.Children.Add(n);
-                    }
-
-                    entities.Children.Add(entityElement);
-                }
-                //lvl.Children.Add(entities);
-
                 //trigger definition
                 MapElement triggers = new MapElement();
                 triggers.Name = "triggers";
@@ -145,7 +176,23 @@ namespace CelesteLevelEditor
                 {
                     MapElement entityElement = new MapElement();
                     entityElement.Name = entityData.Name;
-                    entityElement.Attributes = entityData.Values;
+                    entityElement.Attributes.Add("id", entityData.ID);
+                    entityElement.Attributes.Add("x", entityData.Position.X);
+                    entityElement.Attributes.Add("y", entityData.Position.Y);
+                    if (entityData.Width > 0)
+                        entityElement.Attributes.Add("width", entityData.Width);
+                    if (entityData.Height > 0)
+                        entityElement.Attributes.Add("height", entityData.Height);
+                    entityElement.Attributes.Add("originX", entityData.Origin.X);
+                    entityElement.Attributes.Add("originY", entityData.Origin.Y);
+                    //entityElement.Attributes = entityData.Values;
+                    if (entityData.Values != null)
+                    {
+                        foreach (KeyValuePair<string, object> pair in entityData.Values)
+                        {
+                            entityElement.Attributes.Add(pair.Key, pair.Value);
+                        }
+                    }
 
                     foreach (Vector2 node in entityData.Nodes)
                     {
@@ -153,12 +200,12 @@ namespace CelesteLevelEditor
                         n.Name = "node";
                         n.Attributes.Add("x", node.X);
                         n.Attributes.Add("y", node.Y);
-                        triggers.Children.Add(n);
+                        entityElement.Children.Add(n);
                     }
 
                     triggers.Children.Add(entityElement);
                 }
-                //lvl.Children.Add(triggers);
+                lvl.Children.Add(triggers);
 
                 //fgtiles definition
                 MapElement fgtile = new MapElement();
@@ -175,7 +222,7 @@ namespace CelesteLevelEditor
                 fgDecals.Name = "fgdecals";
                 fgDecals.Attributes.Add("offsetX", 0);
                 fgDecals.Attributes.Add("offsetY", 0);
-                foreach ( DecalData decalData in level.FgDecals)
+                foreach (DecalData decalData in level.FgDecals)
                 {
                     MapElement decal = new MapElement();
 
@@ -183,7 +230,7 @@ namespace CelesteLevelEditor
                     decal.Attributes.Add("x", decalData.Position.X);
                     decal.Attributes.Add("y", decalData.Position.Y);
                     decal.Attributes.Add("scaleX", decalData.Scale.X);
-                    decal.Attributes.Add("scaleY", decalData.Scale.X);
+                    decal.Attributes.Add("scaleY", decalData.Scale.Y);
                     decal.Attributes.Add("texture", decalData.Texture);
 
                     fgDecals.Children.Add(decal);
@@ -197,6 +244,56 @@ namespace CelesteLevelEditor
                 solids.Attributes.Add("offsetY", 0);
                 solids.Attributes.Add("innerText", level.Solids);
                 lvl.Children.Add(solids);
+
+                //entity definition
+                MapElement entities = new MapElement();
+                entities.Name = "entities";
+                entities.Attributes.Add("offsetX", 0);
+                entities.Attributes.Add("offsetY", 0);
+                foreach ( EntityData entityData in level.Entities)
+                {
+                    MapElement entityElement = new MapElement();
+                    entityElement.Name = entityData.Name;
+                    entityElement.Attributes.Add("id", entityData.ID);
+                    entityElement.Attributes.Add("x", entityData.Position.X);
+                    entityElement.Attributes.Add("y", entityData.Position.Y);
+                    if( entityData.Width > 0)
+                        entityElement.Attributes.Add("width", entityData.Width);
+                    if (entityData.Height > 0)
+                        entityElement.Attributes.Add("height", entityData.Height);
+                    entityElement.Attributes.Add("originX", entityData.Origin.X);
+                    entityElement.Attributes.Add("originY", entityData.Origin.Y);
+                    //entityElement.Attributes = entityData.Values;
+                    if (entityData.Values != null)
+                    {
+                        foreach (KeyValuePair<string, object> pair in entityData.Values)
+                        {
+                            entityElement.Attributes.Add(pair.Key, pair.Value);
+                        }
+                    }
+
+                    foreach( Vector2 node in entityData.Nodes)
+                    {
+                        MapElement n = new MapElement();
+                        n.Name = "node";
+                        n.Attributes.Add("x", node.X);
+                        n.Attributes.Add("y", node.Y);
+                        entityElement.Children.Add(n);
+                    }
+
+                    entities.Children.Add(entityElement);
+                }
+                
+                foreach(Vector2 pos in level.Spawns)
+                {
+                    MapElement playerElement = new MapElement();
+                    playerElement.Name = "player";
+                    playerElement.Attributes.Add("id", "0");
+                    playerElement.Attributes.Add("x", (pos.X - level.Bounds.X).ToString());
+                    playerElement.Attributes.Add("y", (pos.Y - level.Bounds.Y).ToString());
+                    entities.Children.Add(playerElement);
+                }
+                lvl.Children.Add(entities);
 
                 //bgtiles definition
                 MapElement bgtile = new MapElement();
@@ -221,7 +318,7 @@ namespace CelesteLevelEditor
                     decal.Attributes.Add("x", decalData.Position.X);
                     decal.Attributes.Add("y", decalData.Position.Y);
                     decal.Attributes.Add("scaleX", decalData.Scale.X);
-                    decal.Attributes.Add("scaleY", decalData.Scale.X);
+                    decal.Attributes.Add("scaleY", decalData.Scale.Y);
                     decal.Attributes.Add("texture", decalData.Texture);
 
                     bgDecals.Children.Add(decal);
@@ -280,6 +377,8 @@ namespace CelesteLevelEditor
             styles.Children.Add(foregrounds);
 
             mapElement.Children.Add(styles);
+
+            Logger.Log("CLE", "done map");
 
             return mapElement;
         }
@@ -539,6 +638,25 @@ namespace CelesteLevelEditor
         static LevelEditor()
         {
             LevelEditor.area = AreaKey.None;
+            VirtualTexture vt = VirtualContent.CreateTexture("trans", 8, 8, new Color(0, 0, 0, 0));
+            transTexture = new MTexture(vt);
+
+            tool = Tool.brush;
+
+            eInfo = new Dictionary<string, EntityInfo>();
+
+            Color noColor = new Color(0, 0, 0, 0);
+            Color spikeColor = new Color(0, 255, 0, 255);
+            Color goldBerryColor = new Color(240, 200, 75, 255);
+            Color springColor = new Color(200, 70, 100, 255);
+
+            eInfo.Add("spikesUp", new EntityInfo(0, -8, 0, 0, spikeColor));
+            eInfo.Add("spikesLeft", new EntityInfo(-8, 0, 0, 0, spikeColor));
+            eInfo.Add("spikesDown", new EntityInfo(0, 0, 0, 0, spikeColor));
+            eInfo.Add("spikesRight", new EntityInfo(0, 0, 0, 0, spikeColor));
+            eInfo.Add("goldenBerry", new EntityInfo(0, 0, 0, 0, goldBerryColor));
+            eInfo.Add("spring", new EntityInfo(-8, -8, 8, 0, springColor));
+
         }
 
         private Tiles TileHandler(VirtualMap<char> mapData, int x, int y, Rectangle forceFill, char forceID, Autotiler.Behaviour behaviour)
@@ -603,24 +721,52 @@ namespace CelesteLevelEditor
             }
             return this.lookup[tile].Center;
         }
-
+         
         public LevelEditor(Session session) : base()
         {
+            _instance = this;
+
             fiTexture = typeof(VirtualTexture).GetField("Texture", BindingFlags.NonPublic | BindingFlags.Instance);
             LoadTileset(Path.Combine("Graphics", "ForegroundTiles.xml"));
-
-            Logger.Log("CLE", lookup['1'].Center.Textures.Count.ToString());
-            Logger.Log("CLE", lookup['1'].Padded.Textures.Count.ToString());
 
             bgset1 = GFX.Gui["editor/bg-set-1"];
             set1button = GFX.Gui["editor/bt-set-1"];
             set1buttonsel = GFX.Gui["editor/bt-set-1-sel"];
+
+            guiElements = new List<GUIElement>();
+
+            GUIElement tilebar = new GUIElement(new Vector2(0, 0), new Vector2(1920, 96), new Vector2(Engine.ViewWidth / 4, 12), bgset1, false, false);
+            GUIElement entitybar = new GUIElement(new Vector2(0, 96), new Vector2(984, 320), new Vector2(40, 123), bgset1, false, false);
+            textBox = new TextBox(new Vector2(0, 60), new Vector2(320, 50), new Vector2(1, 1), null, true, true);
+            entitybar.Add(textBox);
+            guiElements.Add(tilebar);
+            guiElements.Add(entitybar);
+
+            int button_x = 96;
+            for (int i = 0; i < 21; i++)
+            {
+                if (i % 3 == 0)
+                    button_x += 32;
+                button_x += 64;
+
+                tilebar.Add(new TileButton(i, new Vector2(button_x, 16), new Vector2(64, 64), new Vector2(2, 2), set1buttonsel, set1button, true, true));
+
+                //GUIElement gElem = ;
+                //guiElements.Add(gElem);
+            }
+
 
             AreaKey area = session.Area;
             area.ID = Calc.Clamp(area.ID, 0, AreaData.Areas.Count - 1);
             this.mapData = AreaData.Areas[area.ID].Mode[(int)area.Mode].MapData;
             this.mapData.Reload();
             this.session = session;
+
+            this.Add(this.Background = new BackdropRenderer());
+            this.Add(this.Foreground = new BackdropRenderer());
+
+            bg_bg = mapData.CreateBackdrops(mapData.Background);
+            bg_fg = mapData.CreateBackdrops(mapData.Foreground);
 
             tile = '1';
 
@@ -876,6 +1022,20 @@ namespace CelesteLevelEditor
             bgTiles.Tiles.ClipCamera = LevelEditor.Camera;
 
             Calc.PopRandom();
+
+            foreach (LevelData levelData in mapData.Levels)
+            {
+                Vector2 vector = new Vector2(levelData.Bounds.Left, levelData.Bounds.Top);
+                foreach (DecalData decalData in levelData.FgDecals)
+                {
+                    base.Add(new Decal(decalData.Texture, vector + decalData.Position, decalData.Scale, -10500));
+                }
+                foreach (DecalData decalData2 in levelData.BgDecals)
+                {
+                    base.Add(new Decal(decalData2.Texture, vector + decalData2.Position, decalData2.Scale, 9000));
+                }
+            }
+
         }
 
         public bool Check(LevelData ld, Vector2 point)
@@ -889,22 +1049,98 @@ namespace CelesteLevelEditor
             return point.X >= (float)room_x && point.Y >= (float)room_y && point.X < (float)(room_x+room_w) && point.Y < (float)room_y+room_h;
         }
 
+        public EntityData CheckEntity(LevelData ld, Vector2 point)
+        {
+            int room_x = ld.Bounds.X;
+            int room_y = ld.Bounds.Y;
+            int room_w = ld.Bounds.Width;
+            int room_h = (int)(Math.Ceiling(ld.Bounds.Height / 8f) * 8);
+            if(point.X >= (float)room_x && point.Y >= (float)room_y && point.X < (float)(room_x + room_w) && point.Y < (float)room_y + room_h)
+            {
+
+                point.X -= ld.Bounds.X;
+                point.Y -= ld.Bounds.Y;
+
+                foreach (EntityData ed in ld.Entities)
+                {
+
+                    float ex = ed.Position.X;
+                    float ey = ed.Position.Y;
+                    float ew = ed.Width == 0 ? 8 : ed.Width;
+                    float eh = ed.Height == 0 ? 8 : ed.Height;
+
+                    if (eInfo.ContainsKey(ed.Name))
+                    {
+                        EntityInfo ei = eInfo[ed.Name];
+                        ex += ei.x;
+                        ey += ei.y;
+                        ew += ei.w;
+                        eh += ei.h;
+                    }
+                    if (point.X >= (float)ex && point.Y >= (float)ey && point.X < (float)(ex + ew) && point.Y < (float)(ey + eh))
+                        return ed;
+                }
+            }
+            return null;
+        }
+
+        public void FloodFill(char[] chararray, int x, int y, int w, int h, char t, char f)
+        {
+            if (y >= h || y < 0)
+                return;
+            if (x >= w || x < 0)
+                return;
+            if (f == t)
+                return;
+            int pos = (y * w) + x;
+            if (chararray[pos] == f)
+            {
+                chararray[pos] = t;
+                FloodFill(chararray, x + 1, y, w, h, t, f);
+                FloodFill(chararray, x - 1, y, w, h, t, f);
+                FloodFill(chararray, x, y + 1, w, h, t, f);
+                FloodFill(chararray, x, y - 1, w, h, t, f);
+            }
+        }
+
         public override void Update()
         {
+            totalTime += Engine.DeltaTime;
+
             Vector2 value;
             value.X = (this.lastMouseScreenPosition.X - MInput.Mouse.Position.X) / LevelEditor.Camera.Zoom;
             value.Y = (this.lastMouseScreenPosition.Y - MInput.Mouse.Position.Y) / LevelEditor.Camera.Zoom;
             LevelEditor.Camera.Position += new Vector2((float)Input.MoveX.Value, (float)Input.MoveY.Value) * 600f * Engine.DeltaTime;
             this.UpdateMouse();
 
-            if (MInput.Keyboard.Pressed(Keys.S))
+            foreach(GUIElement elem in guiElements)
+            {
+                elem.Update();
+            }
+
+            foreach (LevelData ld in mapData.Levels) {
+                EntityData temp_ed = CheckEntity(ld, mousePosition);
+                if( temp_ed != null)
+                {
+                    lastHoveredEntity = temp_ed;
+                    textBox.currentText = lastHoveredEntity.Name;
+                }
+            }
+
+            if (MInput.Keyboard.Pressed(Keys.F1))
             {
                 MapElement data = MapDataToXML(mapData);
                 Logger.Log("CLE",data.ToString());
                 XmlDocument doc = new XmlDocument();
                 MapCoder.WriteXML(data, doc, doc);
-                doc.Save("Content/Maps/temp.xml");
+                MapCoder.ToBinary(doc.DocumentElement, "ModContent/Maps/cle.bin");
+                doc.Save("ModContent/Maps/temp.xml");
             }
+
+            if (MInput.Keyboard.Pressed(Keys.G))
+                tool = Tool.fill;
+            if (MInput.Keyboard.Pressed(Keys.B))
+                tool = Tool.brush;
 
             if (MInput.Keyboard.Pressed(Keys.Back))
                 tile = '0';
@@ -928,7 +1164,7 @@ namespace CelesteLevelEditor
                 tile = !MInput.Keyboard.Check(Keys.LeftShift) ? 'c' : 'k'; //POOL | CORE
             if (MInput.Keyboard.Pressed(Keys.D9))
                 tile = !MInput.Keyboard.Check(Keys.LeftShift) ? 'h' : 'l'; //GRASS | DEAD GRASS 
-
+            /*
             if( MInput.Mouse.PressedLeftButton && MInput.Mouse.Position.Y > 16 && MInput.Mouse.Position.Y < 96)
             {
                 int button_x = 96;
@@ -946,34 +1182,51 @@ namespace CelesteLevelEditor
 
                 }
             }
+            */
+            if (MInput.Mouse.PressedLeftButton)
+            {
+                foreach (GUIElement gElem in guiElements)
+                {
+                    if (gElem.OnClick(MInput.Mouse.Position))
+                        break;
+                }
+            }
 
             if (  (MInput.Mouse.CheckLeftButton || MInput.Mouse.CheckRightButton) && MInput.Mouse.Position.Y > 96)
             {
-                    int room_x = -1;
-                    int room_y = -1;
-                    foreach (LevelData levelData in mapData.Levels)
+                int room_x = -1;
+                int room_y = -1;
+                foreach (LevelData levelData in mapData.Levels)
+                {
+                    if (Check(levelData, mousePosition))
                     {
-                        if (Check(levelData, mousePosition))
-                        {
-                            room_x = (int)((this.mousePosition.X - levelData.Bounds.X) / 8f);
-                            room_y = (int)((this.mousePosition.Y - levelData.Bounds.Y) / 8f);
+                        room_x = (int)((this.mousePosition.X - levelData.Bounds.X) / 8f);
+                        room_y = (int)((this.mousePosition.Y - levelData.Bounds.Y) / 8f);
 
-                            if (MInput.Mouse.CheckLeftButton)
-                            {
-                                char[] charArray = levelData.Solids.ToCharArray();
-                                int pos = (room_y * ((int)(levelData.Bounds.Width / 8)+1)) + room_x;
+                        if (MInput.Mouse.CheckLeftButton)
+                        {
+                            char[] charArray = levelData.Solids.ToCharArray();
+                            int pos = (room_y * ((int)(levelData.Bounds.Width / 8)+1)) + room_x;
+                            if (tool == Tool.brush)
                                 charArray[pos] = tile;
-                                levelData.Solids = new string(charArray);
-                            }
-                            if (MInput.Mouse.CheckRightButton)
+                            if (tool == Tool.fill)
                             {
-                                char[] charArray = levelData.Bg.ToCharArray();
-                                int pos = (room_y * (int)(levelData.Bounds.Width / 8)) + room_x;
-                                charArray[pos] = tile;
-                                levelData.Bg = new string(charArray);
+                                char f = charArray[pos];
+                                FloodFill(charArray, room_x, room_y, levelData.Bounds.Width / 8 + 1, levelData.Bounds.Height / 8, tile, f);
+                                //charArray[pos] = tile;
                             }
+
+                        levelData.Solids = new string(charArray);
+                        }
+                        if (MInput.Mouse.CheckRightButton)
+                        {
+                            char[] charArray = levelData.Bg.ToCharArray();
+                            int pos = (room_y * (int)(levelData.Bounds.Width / 8)) + room_x;
+                            charArray[pos] = tile;
+                            levelData.Bg = new string(charArray);
                         }
                     }
+                }
                     
 
 
@@ -1026,8 +1279,8 @@ namespace CelesteLevelEditor
                                     Tiles tiles = TileHandler(fgData, _x, _y, Rectangle.Empty, '0', behaviour);
                                     if (tiles != null)
                                         fgTiles.Tiles.Tiles[_x, _y] = tiles.Textures[0];
-                                    //else
-                                    //fgTiles.Tiles.Tiles[_x, _y] = null;
+                                    else
+                                        fgTiles.Tiles.Tiles[_x, _y] = transTexture;
                                 }
                             }
 
@@ -1053,7 +1306,7 @@ namespace CelesteLevelEditor
                 Vector2 position = new Vector2(tileBounds.X, tileBounds.Y) * 8f;
                 fgDataUpdated = false;
                 Calc.PushRandom(mapData.LoadSeed);
-                this.fgTiles = new SolidTiles(position, fgData);
+                //this.fgTiles = new SolidTiles(position, fgData);
                 fgTiles.Tiles.ClipCamera = LevelEditor.Camera;
                 Calc.PopRandom();
             }
@@ -1115,19 +1368,61 @@ namespace CelesteLevelEditor
             Draw.Line(0f, LevelEditor.Camera.Top, 0f, LevelEditor.Camera.Top + height, Color.DarkSlateBlue);
             Draw.Line(LevelEditor.Camera.Left, 0f, LevelEditor.Camera.Left + width, 0f, Color.DarkSlateBlue);
 
+            this.Background.Render(this);
+            this.Foreground.Render(this);
+
             bgTiles.Tiles.Render();
+
+            foreach(Entity e in this.Entities)
+            {
+                e.Render();
+            }
+
             fgTiles.Tiles.Render();
 
             foreach (LevelData ld in mapData.Levels)
             {
                 Draw.HollowRect((float)ld.Position.X, (float)ld.Position.Y, (float)(ld.TileBounds.Width * 8), (float)(ld.TileBounds.Height * 8), Calc.HexToColor("ffffff"));
+
+                foreach(Vector2 vector in ld.Spawns)
+                {
+                    Draw.HollowRect(ld.Position.X + vector.X, ld.Position.Y + vector.Y - 8f, 8f, 8f, new Color(255, 0, 0, 255));
+                }
+                foreach (EntityData ed in ld.Entities)
+                {
+                    float ex = ld.Position.X + ed.Position.X;
+                    float ey = ld.Position.Y + ed.Position.Y;
+                    float ew = ed.Width == 0 ? 8 : ed.Width;
+                    float eh = ed.Height == 0 ? 8 : ed.Height;
+                    Color c = new Color(0,0,255,255);
+
+                    if (eInfo.ContainsKey(ed.Name))
+                    {
+                        EntityInfo ei = eInfo[ed.Name];
+                        ex += ei.x;
+                        ey += ei.y;
+                        ew += ei.w;
+                        eh += ei.h;
+                        c = ei.c.A > 0 ? ei.c : c;
+                    }
+                    Draw.Rect      (ex, ey, ew, eh, c);
+                    if(ed == lastHoveredEntity)
+                        Draw.HollowRect(ex, ey, ew, eh, new Color(255, 0, 0, 255));
+                    else
+                        Draw.HollowRect(ex, ey, ew, eh, new Color(255, 255, 255, 255));
+                }
             }
 
             Draw.SpriteBatch.End();
 
             Draw.SpriteBatch.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.LinearClamp, DepthStencilState.None, RasterizerState.CullNone, null, Engine.ScreenMatrix);
 
-            bgset1.Draw(new Vector2(0, 0), new Vector2(0, 0), Color.White, new Vector2(Engine.ViewWidth / 4, 12));
+            foreach(GUIElement gElem in guiElements)
+            {
+                gElem.Render();
+            }
+            /*
+            
             int button_x = 96;
             for (int i = 0; i < 21; i++)
             {
@@ -1140,31 +1435,38 @@ namespace CelesteLevelEditor
                     set1button.Draw(new Vector2(button_x, 16), new Vector2(0, 0), Color.White, 2f, 0f, SpriteEffects.None);
                 fgtileicons[i].Draw(new Vector2(button_x+8, 16+8), new Vector2(0, 0), Color.White, 2f, 0f, SpriteEffects.None);
             }
-
-            //bg1.Draw(new Vector2((Engine.Width-48), 0), new Vector2(0, 0), Color.White, new Vector2(6, Engine.ViewHeight / 4));
-
+            
             PixelFontSize pixelFontSize = ActiveFont.Font.Get(16f);
             pixelFontSize.Size = 96f;
-
-            //ActiveFont.Draw("Tile: "+tile.ToString(), new Vector2(16, 32), Color.Red);
-
-            //ActiveFont.Draw("RX: " + room_x.ToString(), new Vector2(16, 64), Color.Red);
-            //ActiveFont.Draw("RY: " + room_y.ToString(), new Vector2(16, 96), Color.Red);
 
             ActiveFont.Draw(MInput.Mouse.Position.X.ToString(), new Vector2(16, 128), Color.White);
             ActiveFont.Draw(MInput.Mouse.Position.Y.ToString(), new Vector2(16, 160), Color.White);
 
-            //ActiveFont.Draw(x.ToString(), new Vector2(16, 32), Color.Red);
-            //ActiveFont.Draw(y.ToString(), new Vector2(16, 64), Color.Red);
+            if( lastHoveredEntity != null)
+            {
+                ActiveFont.Draw(lastHoveredEntity.Name, new Vector2(16, 192), Color.White);
+            }
 
-            //ActiveFont.Draw(virtualX.ToString(), new Vector2(16, 96), Color.Red);
-            //ActiveFont.Draw(virtualY.ToString(), new Vector2(16, 128), Color.Red);
+            foreach( LevelData ld in mapData.Levels)
+            {
+                if (Check(ld, mousePosition))
+                {
+                    //ActiveFont.Draw(ld.Name + " @ " + (mousePosition.X-ld.Bounds.X) + ", " + (mousePosition.Y - ld.Bounds.Y), new Vector2(16, 224), Color.White);
+                    int i = 0;
+                    foreach( EntityData ed in ld.Entities)
+                    {
 
-            //MTexture texture = fgTiles.Tiles.Tiles[virtualX, virtualY];
-            //if (texture != null)
-            //    texture.Draw(new Vector2(16, 16), Vector2.Zero, fgTiles.Tiles.Color * fgTiles.Tiles.Alpha, 2f);                
+                        float ex = ed.Position.X;
+                        float ey = ed.Position.Y;
+                        float ew = ed.Width == 0 ? 8 : ed.Width;
+                        float eh = ed.Height == 0 ? 8 : ed.Height;
 
-            //texturePreview.Draw(new Vector2(16, 24));
+                        //ActiveFont.Draw(ed.Name + " @ " + ex + ", " + ey, new Vector2(16, 256 + (i*32)), Color.White);
+                        i++;
+                    }
+                }
+            }
+            */
 
             Draw.SpriteBatch.End();
 
